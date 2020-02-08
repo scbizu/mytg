@@ -38,8 +38,39 @@ func listenWebhook() {
 	}
 }
 
-func (b *Bot) ServeBotUpdateMessage(plugins ...plugin.MessagePlugin) error {
+func (b *Bot) RegisterWebhook() {
 	go listenWebhook()
+}
+
+func (b *Bot) ServeInlineMode(
+	res func() []interface{},
+	OnChosenHandler func(*tgbotapi.ChosenInlineResult)) error {
+	msgs, err := b.getUpdateMessage()
+	if err != nil {
+		return err
+	}
+	for msg := range msgs {
+		if msg.InlineQuery == nil {
+			continue
+		}
+		if msg.ChosenInlineResult != nil &&
+			OnChosenHandler != nil {
+			OnChosenHandler(msg.ChosenInlineResult)
+			return nil
+		}
+		config := tgbotapi.InlineConfig{
+			InlineQueryID: msg.InlineQuery.ID,
+			Results:       res(),
+			IsPersonal:    true,
+		}
+		if _, err := b.bot.AnswerInlineQuery(config); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (b *Bot) getUpdateMessage() (tgbotapi.UpdatesChannel, error) {
 	if _, err := b.bot.RemoveWebhook(); err != nil {
 		logrus.Warnf("mytg: serve request: %q", err)
 	}
@@ -47,18 +78,27 @@ func (b *Bot) ServeBotUpdateMessage(plugins ...plugin.MessagePlugin) error {
 	domainWithToken := fmt.Sprintf("%s/%s", cert.GetDomain(), token)
 	if _, err := b.bot.SetWebhook(tgbotapi.NewWebhook(domainWithToken)); err != nil {
 		logrus.Errorf("notify webhook failed:%s", err.Error())
-		return err
+		return nil, err
 	}
 	if b.isDebugMode {
 		logrus.SetLevel(logrus.DebugLevel)
 		info, err := b.bot.GetWebhookInfo()
 		if err != nil {
-			return err
+			return nil, err
 		}
 		logrus.Debug(info.LastErrorMessage, info.LastErrorDate)
 	}
+
 	pattern := fmt.Sprintf("/tg/%s", token)
 	updatesMsgChannel := b.bot.ListenForWebhook(pattern)
+	return updatesMsgChannel, nil
+}
+
+func (b *Bot) ServeBotUpdateMessage(plugins ...plugin.MessagePlugin) error {
+	updatesMsgChannel, err := b.getUpdateMessage()
+	if err != nil {
+		return err
+	}
 
 	logrus.Debugf("msg in channel:%d", len(updatesMsgChannel))
 	for update := range updatesMsgChannel {
