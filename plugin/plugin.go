@@ -10,5 +10,5 @@ var (
 )
 
 type MessagePlugin interface {
-	HandleMessage(msg *api.Message) (api.MessageConfig, error)
+	HandleMessage(msg *api.Message) (api.Chattable, error)
 }

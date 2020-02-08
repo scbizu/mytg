@@ -68,7 +68,7 @@ func (b *Bot) ServeBotUpdateMessage(plugins ...plugin.MessagePlugin) error {
 			continue
 		}
 
-		var config tgbotapi.MessageConfig
+		var config tgbotapi.Chattable
 
 		for _, p := range plugins {
 			var err error
@@ -86,7 +86,6 @@ func (b *Bot) ServeBotUpdateMessage(plugins ...plugin.MessagePlugin) error {
 			}
 		}
 
-		config.ReplyToMessageID = update.Message.MessageID
 		if _, err := b.bot.Send(config); err != nil {
 			logrus.Errorf("mytg: send message: %q", err)
 			continue
