@@ -44,7 +44,7 @@ func (b *Bot) RegisterWebhook() {
 
 func (b *Bot) ServeInlineMode(
 	resHandler func(updateMsg tgbotapi.Update) ([]interface{}, error),
-	OnChosenHandler func(*tgbotapi.ChosenInlineResult) error) error {
+	OnChosenHandler func(*tgbotapi.ChosenInlineResult, *tgbotapi.BotAPI) error) error {
 	msgs, err := b.getUpdateMessage()
 	if err != nil {
 		return err
@@ -55,7 +55,7 @@ func (b *Bot) ServeInlineMode(
 		}
 		if msg.ChosenInlineResult != nil &&
 			OnChosenHandler != nil {
-			if err := OnChosenHandler(msg.ChosenInlineResult); err != nil {
+			if err := OnChosenHandler(msg.ChosenInlineResult, b.bot); err != nil {
 				logrus.Errorf("inline mode: %w", err)
 				continue
 			}
