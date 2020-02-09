@@ -3,10 +3,10 @@ package mytg
 import (
 	"errors"
 	"fmt"
-	"github.com/scbizu/mytg/plugin"
 	"net/http"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
+	"github.com/scbizu/mytg/plugin"
 	"github.com/sirupsen/logrus"
 )
 
@@ -44,7 +44,7 @@ func (b *Bot) RegisterWebhook() {
 
 func (b *Bot) ServeInlineMode(
 	resHandler func(updateMsg tgbotapi.Update) ([]interface{}, error),
-	OnChosenHandler func(*tgbotapi.ChosenInlineResult)) error {
+	OnChosenHandler func(*tgbotapi.ChosenInlineResult) error) error {
 	msgs, err := b.getUpdateMessage()
 	if err != nil {
 		return err
@@ -55,7 +55,10 @@ func (b *Bot) ServeInlineMode(
 		}
 		if msg.ChosenInlineResult != nil &&
 			OnChosenHandler != nil {
-			OnChosenHandler(msg.ChosenInlineResult)
+			if err := OnChosenHandler(msg.ChosenInlineResult); err != nil {
+				logrus.Errorf("inline mode: %w", err)
+				continue
+			}
 			return nil
 		}
 		r, err := resHandler(msg)
