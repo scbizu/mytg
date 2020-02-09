@@ -43,7 +43,7 @@ func (b *Bot) RegisterWebhook() {
 }
 
 func (b *Bot) ServeInlineMode(
-	res func(updateMsg tgbotapi.Update) []interface{},
+	resHandler func(updateMsg tgbotapi.Update) ([]interface{}, error),
 	OnChosenHandler func(*tgbotapi.ChosenInlineResult)) error {
 	msgs, err := b.getUpdateMessage()
 	if err != nil {
@@ -58,9 +58,13 @@ func (b *Bot) ServeInlineMode(
 			OnChosenHandler(msg.ChosenInlineResult)
 			return nil
 		}
+		r, err := resHandler(msg)
+		if err != nil {
+			continue
+		}
 		config := tgbotapi.InlineConfig{
 			InlineQueryID: msg.InlineQuery.ID,
-			Results:       res(msg),
+			Results:       r,
 			IsPersonal:    true,
 		}
 		if _, err := b.bot.AnswerInlineQuery(config); err != nil {
