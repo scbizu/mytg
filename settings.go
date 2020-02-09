@@ -7,17 +7,19 @@ import (
 )
 
 const (
-	tokenKey    = "BOTKEY"
-	listenPort  = "LISTENPORT"
-	tgAPIDomain = "https://api.scnace.me/tg"
+	tokenKey      = "BOTKEY"
+	listenPortKey = "LISTENPORT"
+	tgAPIDomain   = "https://api.scnace.me/tg"
 )
 
 var (
-	token string
+	token      string
+	listenPort string
 )
 
 func init() {
 	token = os.Getenv(tokenKey)
+	listenPort = os.Getenv(listenPortKey)
 }
 
 // ConnectTG returns the bot instance
