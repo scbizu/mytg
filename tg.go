@@ -16,6 +16,7 @@ import (
 type Bot struct {
 	bot         *tgbotapi.BotAPI
 	isDebugMode bool
+	msgs        map[MSGType]<-chan tgbotapi.Update
 }
 
 func NewBot(isDebugMode bool) (*Bot, error) {
@@ -31,7 +32,21 @@ func NewBot(isDebugMode bool) (*Bot, error) {
 		tgConn.Debug = true
 		logrus.Infof("bot auth passed as %s", tgConn.Self.UserName)
 	}
+	bot.msgs = make(map[MSGType]<-chan tgbotapi.Update)
 	return bot, nil
+}
+
+type MSGType string
+
+const (
+	MSGTypeText   MSGType = "text"
+	MSGTypeInline MSGType = "inline"
+)
+
+func (b *Bot) RegisterMsgChannel(cnames ...MSGType) {
+	for _, name := range cnames {
+		b.msgs[name] = make(chan tgbotapi.Update, b.bot.Buffer)
+	}
 }
 
 func listenWebhook() {
@@ -82,10 +97,8 @@ func (b *Bot) setWebhookOnce() {
 func (b *Bot) ServeInlineMode(
 	resHandler func(updateMsg tgbotapi.Update) ([]interface{}, error),
 	OnChosenHandler func(*tgbotapi.ChosenInlineResult, *tgbotapi.BotAPI) error) error {
-	msgs, err := b.getUpdateMessage()
-	if err != nil {
-		return err
-	}
+	b.getUpdateMessage()
+	msgs := b.msgs[MSGTypeInline]
 	for msg := range msgs {
 		if msg.InlineQuery == nil {
 			continue
@@ -114,21 +127,25 @@ func (b *Bot) ServeInlineMode(
 	return nil
 }
 
-func (b *Bot) getUpdateMessage() (tgbotapi.UpdatesChannel, error) {
+var getMessageOnce sync.Once
+
+func (b *Bot) getUpdateMessage() {
 	b.setWebhookOnce()
-	pattern := fmt.Sprintf("/tg/%s", token)
-	updatesMsgChannel := b.bot.ListenForWebhook(pattern)
-	return updatesMsgChannel, nil
+	getMessageOnce.Do(func() {
+		pattern := fmt.Sprintf("/tg/%s", token)
+		// fan out
+		updatesMsgChannel := b.bot.ListenForWebhook(pattern)
+		for name := range b.msgs {
+			b.msgs[name] = updatesMsgChannel
+		}
+	})
 }
 
 func (b *Bot) ServeBotUpdateMessage(plugins ...plugin.MessagePlugin) error {
-	updatesMsgChannel, err := b.getUpdateMessage()
-	if err != nil {
-		return err
-	}
-
-	logrus.Debugf("msg in channel:%d", len(updatesMsgChannel))
-	for update := range updatesMsgChannel {
+	b.getUpdateMessage()
+	msgs := b.msgs[MSGTypeText]
+	logrus.Debugf("msg in channel:%d", len(msgs))
+	for update := range msgs {
 		logrus.Debugf("[raw msg]:%#v\n", update)
 
 		if update.Message == nil {
