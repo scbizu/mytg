@@ -1,8 +1,10 @@
 package mytg
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net"
 	"net/http"
 	"sync"
@@ -127,18 +129,30 @@ func (b *Bot) ServeInlineMode(
 	return nil
 }
 
-var getMessageOnce sync.Once
-
 func (b *Bot) getUpdateMessage() {
 	b.setWebhookOnce()
-	getMessageOnce.Do(func() {
-		pattern := fmt.Sprintf("/tg/%s", token)
+	pattern := fmt.Sprintf("/tg/%s", token)
+	b.listenForWebhook(pattern)
+}
+
+func (b *Bot) listenForWebhook(router string) {
+
+	http.HandleFunc(router, func(w http.ResponseWriter, r *http.Request) {
+
+		bytes, _ := ioutil.ReadAll(r.Body)
+		logrus.Debugf("mytg: raw handler message: %s", string(bytes))
+
+		var update tgbotapi.Update
+		json.Unmarshal(bytes, &update)
 		// fan out
-		updatesMsgChannel := b.bot.ListenForWebhook(pattern)
 		for name := range b.msgs {
-			b.msgs[name] = updatesMsgChannel
+			uChan := make(chan tgbotapi.Update, b.bot.Buffer)
+			uChan <- update
+			b.msgs[name] = uChan
 		}
+
 	})
+
 }
 
 func (b *Bot) ServeBotUpdateMessage(plugins ...plugin.MessagePlugin) error {
