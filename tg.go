@@ -5,10 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io/ioutil"
-	"net"
 	"net/http"
 	"sync"
-	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	"github.com/scbizu/mytg/plugin"
@@ -54,20 +52,30 @@ func (b *Bot) RegisterMsgChannel(cnames ...MSGType) {
 func listenWebhook() {
 
 	port := fmt.Sprintf(":%s", listenPort)
-	// pre-check if webhook is already registered
-	for {
-		conn, _ := net.DialTimeout("tcp", net.JoinHostPort("localhost", port), time.Minute)
-		if conn != nil {
-			conn.Close()
-			break
-		}
-	}
 	if err := http.ListenAndServe(port, nil); err != nil {
 		panic(err)
 	}
 }
 
 func (b *Bot) RegisterWebhook() {
+
+	b.setWebhookOnce()
+	router := fmt.Sprintf("/tg/%s", token)
+	http.HandleFunc(router, func(w http.ResponseWriter, r *http.Request) {
+
+		bytes, _ := ioutil.ReadAll(r.Body)
+		logrus.Debugf("mytg: raw handler message: %s", string(bytes))
+
+		var update tgbotapi.Update
+		json.Unmarshal(bytes, &update)
+		// fan out
+		for name := range b.msgs {
+			uChan := make(chan tgbotapi.Update, b.bot.Buffer)
+			uChan <- update
+			b.msgs[name] = uChan
+		}
+	})
+
 	go listenWebhook()
 }
 
@@ -99,7 +107,6 @@ func (b *Bot) setWebhookOnce() {
 func (b *Bot) ServeInlineMode(
 	resHandler func(updateMsg tgbotapi.Update) ([]interface{}, error),
 	OnChosenHandler func(*tgbotapi.ChosenInlineResult, *tgbotapi.BotAPI) error) error {
-	b.getUpdateMessage()
 	msgs := b.msgs[MSGTypeInline]
 	for msg := range msgs {
 		if msg.InlineQuery == nil {
@@ -129,34 +136,7 @@ func (b *Bot) ServeInlineMode(
 	return nil
 }
 
-func (b *Bot) getUpdateMessage() {
-	b.setWebhookOnce()
-	pattern := fmt.Sprintf("/tg/%s", token)
-	b.listenForWebhook(pattern)
-}
-
-func (b *Bot) listenForWebhook(router string) {
-
-	http.HandleFunc(router, func(w http.ResponseWriter, r *http.Request) {
-
-		bytes, _ := ioutil.ReadAll(r.Body)
-		logrus.Debugf("mytg: raw handler message: %s", string(bytes))
-
-		var update tgbotapi.Update
-		json.Unmarshal(bytes, &update)
-		// fan out
-		for name := range b.msgs {
-			uChan := make(chan tgbotapi.Update, b.bot.Buffer)
-			uChan <- update
-			b.msgs[name] = uChan
-		}
-
-	})
-
-}
-
 func (b *Bot) ServeBotUpdateMessage(plugins ...plugin.MessagePlugin) error {
-	b.getUpdateMessage()
 	msgs := b.msgs[MSGTypeText]
 	logrus.Debugf("msg in channel:%d", len(msgs))
 	for update := range msgs {
