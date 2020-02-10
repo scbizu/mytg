@@ -66,7 +66,7 @@ func (b *Bot) RegisterWebhook(
 
 	})
 
-	go listenWebhook()
+	 listenWebhook()
 }
 
 var webhookOnce sync.Once
