@@ -3,7 +3,10 @@ package mytg
 import (
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
+	"sync"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api"
 	"github.com/scbizu/mytg/plugin"
@@ -32,7 +35,16 @@ func NewBot(isDebugMode bool) (*Bot, error) {
 }
 
 func listenWebhook() {
+
 	port := fmt.Sprintf(":%s", listenPort)
+	// pre-check if webhook is already registered
+	for {
+		conn, _ := net.DialTimeout("tcp", net.JoinHostPort("localhost", port), time.Minute)
+		if conn != nil {
+			conn.Close()
+			break
+		}
+	}
 	if err := http.ListenAndServe(port, nil); err != nil {
 		panic(err)
 	}
@@ -40,6 +52,31 @@ func listenWebhook() {
 
 func (b *Bot) RegisterWebhook() {
 	go listenWebhook()
+}
+
+var webhookOnce sync.Once
+
+func (b *Bot) setWebhookOnce() {
+	webhookOnce.Do(func() {
+		if _, err := b.bot.RemoveWebhook(); err != nil {
+			logrus.Warnf("mytg: serve request: %q", err)
+		}
+		cert := NewDomainCert(tgAPIDomain)
+		domainWithToken := fmt.Sprintf("%s/%s", cert.GetDomain(), token)
+		if _, err := b.bot.SetWebhook(tgbotapi.NewWebhook(domainWithToken)); err != nil {
+			logrus.Errorf("mytg: notify webhook failed:%q", err)
+			return
+		}
+		if b.isDebugMode {
+			logrus.SetLevel(logrus.DebugLevel)
+			info, err := b.bot.GetWebhookInfo()
+			if err != nil {
+				logrus.Errorf("mytg: debug: get webhook info:%q", err)
+				return
+			}
+			logrus.Debug(info.LastErrorMessage, info.LastErrorDate)
+		}
+	})
 }
 
 func (b *Bot) ServeInlineMode(
@@ -56,7 +93,7 @@ func (b *Bot) ServeInlineMode(
 		if msg.ChosenInlineResult != nil &&
 			OnChosenHandler != nil {
 			if err := OnChosenHandler(msg.ChosenInlineResult, b.bot); err != nil {
-				logrus.Errorf("inline mode: %w", err)
+				logrus.Errorf("inline mode: %q", err)
 				continue
 			}
 			return nil
@@ -78,24 +115,7 @@ func (b *Bot) ServeInlineMode(
 }
 
 func (b *Bot) getUpdateMessage() (tgbotapi.UpdatesChannel, error) {
-	if _, err := b.bot.RemoveWebhook(); err != nil {
-		logrus.Warnf("mytg: serve request: %q", err)
-	}
-	cert := NewDomainCert(tgAPIDomain)
-	domainWithToken := fmt.Sprintf("%s/%s", cert.GetDomain(), token)
-	if _, err := b.bot.SetWebhook(tgbotapi.NewWebhook(domainWithToken)); err != nil {
-		logrus.Errorf("notify webhook failed:%s", err.Error())
-		return nil, err
-	}
-	if b.isDebugMode {
-		logrus.SetLevel(logrus.DebugLevel)
-		info, err := b.bot.GetWebhookInfo()
-		if err != nil {
-			return nil, err
-		}
-		logrus.Debug(info.LastErrorMessage, info.LastErrorDate)
-	}
-
+	b.setWebhookOnce()
 	pattern := fmt.Sprintf("/tg/%s", token)
 	updatesMsgChannel := b.bot.ListenForWebhook(pattern)
 	return updatesMsgChannel, nil
