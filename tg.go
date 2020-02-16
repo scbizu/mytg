@@ -105,6 +105,7 @@ func (b *Bot) serveInlineMode(msg tgbotapi.Update,
 			logrus.Errorf("inline mode: %q", err)
 			return err
 		}
+		msg.ChosenInlineResult = nil
 		return nil
 	}
 
